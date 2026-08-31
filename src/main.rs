@@ -1,9 +1,12 @@
 //! A typing test for the terminal, in the spirit of monkeytype.
 //!
-//! Ported from the Elixir implementation module by module; this is the
-//! foundation it is built on.
+//! The interesting parts are [`engine`], which models a test as a state machine
+//! driven by an injected clock, and [`stats`], which scores one. Neither knows a
+//! terminal exists.
 
+mod engine;
 mod rng;
+mod stats;
 mod words;
 mod words_data;
 
