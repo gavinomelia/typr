@@ -7,10 +7,12 @@
 mod datetime;
 mod engine;
 mod history;
+mod render;
 mod report;
 mod rng;
 mod stats;
 mod summary;
+mod theme;
 mod words;
 mod words_data;
 
