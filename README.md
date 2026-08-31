@@ -1,17 +1,9 @@
 # typr
 
-A monkeytype-style typing test for the terminal, in Rust.
+A typing test for the terminal, in Rust. Inspired by https://monkeytype.com.
 
-```
-                                                                        
-  23                                                        78 wpm      
-                                                                        
-  the quick brown fox jumps over the lazy dog while people think about  
-  their own work and find the time to make something good with words    
-  that come back again after every line you finish typing out loud      
-                                                                        
-                        tab restart · esc quit                          
-```
+<img width="780" height="350" alt="Screenshot 2026-08-31 at 9 29 38 AM" src="https://github.com/user-attachments/assets/4b389c75-396f-454c-b347-580a69213d2e" />
+
 
 Type the words as they appear. Correct letters brighten, wrong ones turn red,
 and the graph afterwards shows where you sped up, slowed down and slipped.
