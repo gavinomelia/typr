@@ -4,6 +4,7 @@
 //! driven by an injected clock, and [`stats`], which scores one. Neither knows a
 //! terminal exists.
 
+mod app;
 mod datetime;
 mod engine;
 mod history;
@@ -12,6 +13,7 @@ mod report;
 mod rng;
 mod stats;
 mod summary;
+mod terminal;
 mod theme;
 mod words;
 mod words_data;
