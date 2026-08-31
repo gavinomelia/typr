@@ -1,6 +1,6 @@
 # typr
 
-A monkeytype-style typing test for the terminal, in Elixir.
+A monkeytype-style typing test for the terminal, in Rust.
 
 ```
                                                                         
@@ -18,14 +18,16 @@ and the graph afterwards shows where you sped up, slowed down and slipped.
 
 ## Running it
 
-Needs Elixir and Erlang/OTP 26 or later.
-
 ```sh
-mix escript.build     # produces ./typr
-./typr                # a 30 second test
+cargo build --release      # produces target/release/typr
+./target/release/typr      # a 30 second test
 ```
 
-Put it on your path with `cp typr ~/.local/bin/` or similar.
+Put it on your path with `cp target/release/typr ~/.local/bin/` or similar.
+
+The binary is self-contained: about 500 KB, one dependency (`libc`), and no
+runtime to install on the far end. Anyone with a Mac can run it without
+installing Rust.
 
 ## Usage
 
@@ -60,7 +62,7 @@ Keys: `tab` restarts, `r` repeats the same words from the results screen,
 Two people can race the same words by agreeing on a seed:
 
 ```sh
-./typr -w 25 --seed 1312
+typr -w 25 --seed 1312
 ```
 
 ## Stats
@@ -111,13 +113,14 @@ The interesting part is the split between a pure core and a thin IO shell.
 
 | Module | Job |
 | --- | --- |
-| `Typr.Engine` | The test as a pure state machine. Every keystroke is a function call and time is passed in, never read, so a whole test can be replayed deterministically in a unit test. |
-| `Typr.Stats` | Scoring: wpm, raw, accuracy, consistency, per-letter tallies. |
-| `Typr.Summary` | Aggregates a history into bests, averages, streaks and trouble keys. |
-| `Typr.Render` | `state -> iodata`. Word wrap, the scrolling three-line window, the results graph. Pure. |
-| `Typr.App` | The event loop: a reader process blocks on stdin while the loop wakes on its own timer. |
-| `Typr.Terminal` | Raw mode, ANSI, terminal size. |
-| `Typr.History` | Appends results to disk and reads them back. |
+| `engine` | The test as a state machine. Every keystroke is a method call and time is passed in, never read, so a whole test can be replayed deterministically in a unit test. |
+| `stats` | Scoring: wpm, raw, accuracy, consistency, per-letter tallies. |
+| `summary` | Aggregates a history into bests, averages, streaks and trouble keys. |
+| `render` | `state -> String`. Word wrap, the scrolling three-line window, the results graph. Pure. |
+| `app` | The event loop: a reader thread blocks on stdin while the loop wakes on its own timer. |
+| `terminal` | Raw mode, ANSI, terminal size. |
+| `history` | Appends results to disk and reads them back. |
+| `rng` | A seedable SplitMix64, so `--seed` is reproducible. |
 
 Scoring follows monkeytype's definitions: **wpm** counts correctly typed
 characters (plus the spaces after correctly typed words) in units of five per
@@ -127,28 +130,25 @@ from the coefficient of variation of per-second speed.
 
 ### Getting a keystroke out of a terminal
 
-This is the one genuinely awkward part on the BEAM, and it's worth writing
-down. The runtime hands child processes pipes rather than the terminal, and it
-has no controlling terminal of its own, so `stty` reaches the wrong device
-whether you point it at stdin or at `/dev/tty`. What works is asking the
-operating system which terminal the runtime is attached to — `ps -o tty=` —
-and pointing `stty` at that device by name.
+File descriptor 0 is the terminal, so raw mode is one `tcsetattr` and the size
+is one `ioctl`. The reader thread blocks on stdin and posts each character to a
+channel; the main loop's `recv_timeout` either hands over the next keystroke or
+says the frame is due, which is what lets the clock keep running while nothing
+is being typed.
 
-OTP 28 has a proper answer, `shell:start_interactive({noshell, raw})`, and
-`Typr.Terminal` uses it when available. On earlier releases that call is worse
-than unsupported: the option isn't recognised, so it starts a full interactive
-shell that silently eats every keystroke. Hence the version gate.
+Raw mode and the alternate screen are both RAII guards, so they are undone even
+if the program panics — otherwise a crash would leave the shell with no echo.
 
 If keys aren't registering, `typr --doctor` reports what the terminal layer can
-and cannot do here, including a two second input probe.
+and cannot do here.
 
 ## Tests
 
 ```sh
-mix test
+cargo test
 ```
 
-109 tests, no external dependencies. The engine, scoring, aggregation and
+175 tests, no dependencies beyond `libc`. The engine, scoring, aggregation and
 rendering are all pure, so they're tested directly — including things that are
 tedious to check by hand, like a timed test reporting exactly its limit when
 the final tick lands late.
@@ -156,16 +156,21 @@ the final tick lands late.
 For the parts that need a real terminal there's a pty harness:
 
 ```sh
-python3 test/support/drive.py --send 'the ' --wait 1 --send 'quick ' -- ./typr -w 5 --seed 42
+python3 test/support/drive.py --send 'the ' --wait 1 --send 'quick ' \
+  -- ./target/release/typr -w 5 --seed 42
 ```
 
 It allocates a pty with a known window size, sends keystrokes with delays, and
 replays the escape sequences onto a character grid so you can see the final
-screen as text.
+screen as text. Point `XDG_CONFIG_HOME` at a scratch directory when driving it,
+or the runs land in your real history.
 
-## Packaging
+The code is kept clean under `cargo clippy` and formatted with `cargo fmt`.
 
-`escript` was chosen over a Mix release for distribution: one file, and the
-only requirement on the far end is an Erlang runtime. If you want a binary with
-no runtime dependency at all, [Burrito](https://github.com/burrito-elixir/burrito)
-is the usual next step.
+## History
+
+This started as an Elixir escript. That version needed an Erlang runtime on the
+target machine, which macOS has never shipped, so it was rewritten in Rust to
+get a single binary that runs on a stock Mac. The scoring, word lists, file
+format and screen layout are unchanged — a `history.tsv` written by the Elixir
+version loads here without conversion.
