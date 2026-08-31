@@ -5,6 +5,7 @@
 //! terminal exists.
 
 mod app;
+mod cli;
 mod datetime;
 mod engine;
 mod history;
@@ -19,5 +20,7 @@ mod words;
 mod words_data;
 
 fn main() {
-    println!("typr {}", env!("CARGO_PKG_VERSION"));
+    let args: Vec<String> = std::env::args().skip(1).collect();
+
+    std::process::exit(cli::main(&args));
 }
