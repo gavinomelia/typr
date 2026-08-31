@@ -1,0 +1,19 @@
+[package]
+name = "typr"
+version = "1.0.0"
+edition = "2021"
+description = "A monkeytype-style typing test for the terminal"
+license = "MIT"
+
+[dependencies]
+# The only dependency. Used for termios (raw mode), the TIOCGWINSZ ioctl
+# (terminal size) and localtime_r (history timestamps in local time).
+libc = "0.2"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+# Deliberately not `panic = "abort"`: the terminal is restored by a Drop guard,
+# which only runs while unwinding.

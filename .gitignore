@@ -6,3 +6,6 @@
 /typr
 erl_crash.dump
 *.ez
+
+# Rust
+/target/
