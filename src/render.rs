@@ -172,15 +172,16 @@ pub fn layout<'a>(words: &[Word<'a>], width: usize) -> Vec<Vec<Placed<'a>>> {
 
 /// Renders per-second speed as a bar chart.
 ///
-/// Samples are bucketed down to the available width, so a two minute test and a
-/// fifteen second one both fill the same space.
+/// The graph always fills the width it is given, so a two minute test and a
+/// fifteen second one occupy the same space: a long test averages several
+/// seconds into each column, a short one gives each second several columns.
 pub fn chart(samples: &[Sample], width: usize, height: usize) -> Vec<Vec<Segment>> {
     if samples.is_empty() {
         return Vec::new();
     }
 
     let columns = width.saturating_sub(LABEL_WIDTH).max(1);
-    let buckets = bucket(samples, columns);
+    let buckets = resample(samples, columns);
     let ceiling = ceiling_for(&buckets);
 
     let mut rows: Vec<Vec<Segment>> = Vec::new();
@@ -501,21 +502,32 @@ fn time_axis(samples: &[Sample], buckets: &[Sample]) -> Vec<Segment> {
     ]
 }
 
-/// Averages samples into at most `columns` buckets, keeping any error in a
-/// bucket visible rather than averaging it away.
-fn bucket(samples: &[Sample], columns: usize) -> Vec<Sample> {
-    if samples.len() <= columns {
-        return samples.to_vec();
+/// Spreads the samples across exactly `columns` buckets, so the graph fills its
+/// width whether there are more seconds than columns or fewer.
+///
+/// Each column covers an equal slice of the test. A long test averages several
+/// seconds into one column, keeping any error in that slice visible rather than
+/// averaging it away; a short test gives one second several columns, which
+/// widens its bar rather than inventing readings between them.
+fn resample(samples: &[Sample], columns: usize) -> Vec<Sample> {
+    if samples.is_empty() {
+        return Vec::new();
     }
 
-    let size = samples.len().div_ceil(columns);
+    (0..columns)
+        .map(|column| {
+            let start = column * samples.len() / columns;
+            let end = (((column + 1) * samples.len()) / columns)
+                .max(start + 1)
+                .min(samples.len());
 
-    samples
-        .chunks(size)
-        .map(|chunk| Sample {
-            at: chunk.last().map_or(0.0, |sample| sample.at),
-            raw: chunk.iter().map(|sample| sample.raw).sum::<f64>() / chunk.len() as f64,
-            errors: chunk.iter().map(|sample| sample.errors).sum(),
+            let slice = &samples[start..end];
+
+            Sample {
+                at: slice.last().map_or(0.0, |sample| sample.at),
+                raw: slice.iter().map(|sample| sample.raw).sum::<f64>() / slice.len() as f64,
+                errors: slice.iter().map(|sample| sample.errors).sum(),
+            }
         })
         .collect()
 }
@@ -878,7 +890,7 @@ mod tests {
     }
 
     #[test]
-    fn draws_one_column_per_sample_and_marks_the_seconds_with_errors() {
+    fn draws_the_speed_and_marks_the_seconds_with_errors() {
         let samples = [
             Sample {
                 at: 1.0,
@@ -907,19 +919,91 @@ mod tests {
         assert!(rows.iter().any(|row| row.contains("3s")));
     }
 
-    #[test]
-    fn buckets_a_long_test_down_to_the_available_width() {
-        let samples: Vec<Sample> = (1..=120)
+    fn flat_samples(seconds: u32) -> Vec<Sample> {
+        (1..=seconds)
             .map(|second| Sample {
                 at: f64::from(second),
                 raw: 50.0,
                 errors: 0,
             })
+            .collect()
+    }
+
+    /// The width of a chart row, counting the label gutter.
+    fn row_width(samples: &[Sample], width: usize) -> usize {
+        text_of(&chart(samples, width, 8)[0]).chars().count()
+    }
+
+    #[test]
+    fn a_long_test_is_averaged_down_to_the_available_width() {
+        assert_eq!(row_width(&flat_samples(120), 40), 40);
+    }
+
+    #[test]
+    fn a_short_test_is_stretched_out_to_the_available_width() {
+        // Fifteen seconds used to leave two thirds of the column empty.
+        assert_eq!(row_width(&flat_samples(15), 72), 72);
+    }
+
+    #[test]
+    fn every_test_length_fills_the_width_on_every_row() {
+        for seconds in [1u32, 2, 3, 5, 7, 15, 29, 30, 31, 60, 97, 120, 300, 1000] {
+            for (index, row) in chart(&flat_samples(seconds), 72, 8).iter().enumerate() {
+                let width = text_of(row).chars().count();
+
+                assert_eq!(width, 72, "{seconds}s: row {index} is {width} wide, not 72");
+            }
+        }
+    }
+
+    #[test]
+    fn stretching_repeats_a_second_rather_than_inventing_readings() {
+        let samples = [
+            Sample {
+                at: 1.0,
+                raw: 20.0,
+                errors: 0,
+            },
+            Sample {
+                at: 2.0,
+                raw: 80.0,
+                errors: 0,
+            },
+        ];
+
+        let speeds: Vec<f64> = resample(&samples, 6)
+            .iter()
+            .map(|bucket| bucket.raw)
             .collect();
 
-        let rows = chart(&samples, 40, 8);
-        let bars = text_of(&rows[0]).trim().chars().count();
+        // Each second owns three columns; nothing appears between 20 and 80.
+        assert_eq!(speeds, [20.0, 20.0, 20.0, 80.0, 80.0, 80.0]);
+    }
 
-        assert!(bars <= 40, "{bars} bars is wider than the column");
+    #[test]
+    fn averaging_down_keeps_an_error_in_the_slice_visible() {
+        let samples = [
+            Sample {
+                at: 1.0,
+                raw: 40.0,
+                errors: 0,
+            },
+            Sample {
+                at: 2.0,
+                raw: 60.0,
+                errors: 3,
+            },
+        ];
+
+        let buckets = resample(&samples, 1);
+
+        assert_eq!(buckets.len(), 1);
+        assert_eq!(buckets[0].raw, 50.0);
+        assert_eq!(buckets[0].errors, 3);
+    }
+
+    #[test]
+    fn resampling_nothing_gives_nothing() {
+        assert!(resample(&[], 10).is_empty());
     }
 }
