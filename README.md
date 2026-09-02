@@ -64,9 +64,3 @@ most often.
 ```sh
 cargo test
 ```
-
-## History
-
-This started as an Elixir escript and was rewritten in Rust for a
-single, dependency-free binary. A `history.tsv` written by the Elixir
-version loads here without conversion.
